@@ -73,7 +73,6 @@ def run_processing():
             "--face-detector-model", "yoloface",
             "--face-swapper-model", "inswapper_128",
             "--face-swapper-pixel-boost", "512x512",
-            "--execution-providers", "cuda",
             "--execution-thread-count", "32",
             "--log-level", "info"
         ]
