@@ -15,7 +15,7 @@ cloudinary.config(
 
 # Constants
 SOURCE_URL = "https://res.cloudinary.com/dlnuvrqki/image/upload/v1735817569/marc_nf79yc.jpg"
-TARGET_URL = "https://res.cloudinary.com/dlnuvrqki/video/upload/v1735817526/target_jvspkb.mp4"
+TARGET_URL = "https://res.cloudinary.com/dlnuvrqki/image/upload/v1734590804/aiavatar/images/p0aysk01gffxc2ifj68v.jpg"
 
 def print_status(message, status="INFO"):
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -45,7 +45,7 @@ def upload_to_cloudinary(file_path):
         print_status("Uploading result to Cloudinary...")
         response = cloudinary.uploader.upload(
             file_path,
-            resource_type="video",
+            resource_type="image",  # Changed from video to image
             upload_preset="rocyaab4",
             folder="facefusion_results"
         )
@@ -61,15 +61,15 @@ def run_processing():
         
         if not download_media(SOURCE_URL, "source.jpg"):
             return False
-        if not download_media(TARGET_URL, "target.mp4"):
+        if not download_media(TARGET_URL, "target.jpg"):  # Changed extension to jpg
             return False
         
         print_status("Starting face fusion processing...")
         command = [
             "python", "facefusion.py", "run",
             "-s", "source.jpg",
-            "-t", "target.mp4",
-            "-o", "output.mp4",
+            "-t", "target.jpg",  # Changed target to jpg
+            "-o", "output.jpg",  # Changed output to jpg
             "--face-detector-model", "yoloface",
             "--face-swapper-model", "inswapper_128",
             "--face-swapper-pixel-boost", "512x512",
@@ -102,8 +102,8 @@ def run_processing():
         if return_code == 0:
             print_status("Processing completed successfully!", "SUCCESS")
             # Upload the result to Cloudinary
-            if os.path.exists("output.mp4"):
-                result_url = upload_to_cloudinary("output.mp4")
+            if os.path.exists("output.jpg"):  # Changed to check for jpg
+                result_url = upload_to_cloudinary("output.jpg")  # Changed to jpg
                 if result_url:
                     print_status(f"Final result available at: {result_url}", "SUCCESS")
             return True
@@ -114,7 +114,7 @@ def run_processing():
         print_status(f"Error during processing: {str(e)}", "ERROR")
         return False
     finally:
-        for file in ["source.jpg", "target.mp4", "output.mp4"]:
+        for file in ["source.jpg", "target.jpg", "output.jpg"]:  # Updated cleanup files
             if os.path.exists(file):
                 try:
                     os.remove(file)
