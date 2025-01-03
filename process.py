@@ -9,8 +9,8 @@ import cloudinary.uploader
 # Cloudinary configuration
 cloudinary.config(
     cloud_name="dlnuvrqki",
-    api_key="unused",  # Not needed for unsigned uploads
-    api_secret="unused"  # Not needed for unsigned uploads
+    api_key="unused",
+    api_secret="unused"
 )
 
 # Constants
@@ -18,16 +18,24 @@ SOURCE_URL = "https://res.cloudinary.com/dlnuvrqki/image/upload/v1735817569/marc
 TARGET_URL = "https://res.cloudinary.com/dlnuvrqki/image/upload/v1734590804/aiavatar/images/p0aysk01gffxc2ifj68v.jpg"
 
 def print_status(message, status="INFO"):
+    # Ensure immediate output flush for Docker logs
     timestamp = datetime.now().strftime("%H:%M:%S")
     message = f"[{timestamp}] [{status}] {message}"
-    print(message)
-    sys.stdout.flush()
+    print(message, flush=True)
+
+def ensure_directory(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print_status(f"Created directory: {path}")
 
 def download_media(url, output_path):
     try:
         print_status(f"Downloading {output_path} from {url}")
         response = requests.get(url, stream=True)
         response.raise_for_status()
+        
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         with open(output_path, "wb") as f:
             for chunk in response.iter_content(chunk_size=8192):
@@ -45,7 +53,7 @@ def upload_to_cloudinary(file_path):
         print_status("Uploading result to Cloudinary...")
         response = cloudinary.uploader.upload(
             file_path,
-            resource_type="image",  # Changed from video to image
+            resource_type="image",
             upload_preset="rocyaab4",
             folder="facefusion_results"
         )
@@ -55,21 +63,35 @@ def upload_to_cloudinary(file_path):
         print_status(f"Error uploading to Cloudinary: {str(e)}", "ERROR")
         return None
 
+def stream_output(pipe, prefix):
+    """Helper function to stream output from subprocess pipes"""
+    for line in iter(pipe.readline, b''):
+        if line:
+            decoded_line = line.decode('utf-8').strip()
+            if decoded_line:
+                print_status(f"{prefix}: {decoded_line}")
+
 def run_processing():
     try:
         print_status("Starting processing with predefined URLs")
         
-        if not download_media(SOURCE_URL, "source.jpg"):
+        # Ensure required directories exist
+        ensure_directory('.assets')
+        ensure_directory('.caches')
+        ensure_directory('.jobs')
+        
+        # Download files to .assets directory
+        if not download_media(SOURCE_URL, ".assets/source.jpg"):
             return False
-        if not download_media(TARGET_URL, "target.jpg"):  # Changed extension to jpg
+        if not download_media(TARGET_URL, ".assets/target.jpg"):
             return False
         
         print_status("Starting face fusion processing...")
         command = [
             "python", "facefusion.py", "run",
-            "-s", "source.jpg",
-            "-t", "target.jpg",  # Changed target to jpg
-            "-o", "output.jpg",  # Changed output to jpg
+            "-s", ".assets/source.jpg",
+            "-t", ".assets/target.jpg",
+            "-o", ".assets/output.jpg",
             "--face-detector-model", "yoloface",
             "--face-swapper-model", "inswapper_128",
             "--face-swapper-pixel-boost", "512x512",
@@ -77,44 +99,54 @@ def run_processing():
             "--log-level", "info"
         ]
         
+        # Run the process with real-time output streaming
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_newlines=True,
-            bufsize=1
+            bufsize=1,
+            universal_newlines=False  # Changed to handle bytes
         )
         
-        while True:
-            output = process.stdout.readline()
-            error = process.stderr.readline()
-            
-            if output:
-                print_status(output.strip())
-            if error:
-                print_status(error.strip(), "ERROR")
-            
-            if output == "" and error == "" and process.poll() is not None:
-                break
+        # Set up separate threads for stdout and stderr
+        from threading import Thread
+        stdout_thread = Thread(target=stream_output, args=(process.stdout, "STDOUT"))
+        stderr_thread = Thread(target=stream_output, args=(process.stderr, "STDERR"))
         
-        return_code = process.poll()
+        # Start threads
+        stdout_thread.start()
+        stderr_thread.start()
+        
+        # Wait for process to complete
+        return_code = process.wait()
+        
+        # Wait for output threads to complete
+        stdout_thread.join()
+        stderr_thread.join()
         
         if return_code == 0:
             print_status("Processing completed successfully!", "SUCCESS")
-            # Upload the result to Cloudinary
-            if os.path.exists("output.jpg"):  # Changed to check for jpg
-                result_url = upload_to_cloudinary("output.jpg")  # Changed to jpg
+            output_path = ".assets/output.jpg"
+            if os.path.exists(output_path):
+                result_url = upload_to_cloudinary(output_path)
                 if result_url:
                     print_status(f"Final result available at: {result_url}", "SUCCESS")
             return True
         else:
             print_status(f"Processing failed with return code: {return_code}", "ERROR")
             return False
+            
     except Exception as e:
         print_status(f"Error during processing: {str(e)}", "ERROR")
         return False
     finally:
-        for file in ["source.jpg", "target.jpg", "output.jpg"]:  # Updated cleanup files
+        # Cleanup files
+        files_to_clean = [
+            ".assets/source.jpg",
+            ".assets/target.jpg",
+            ".assets/output.jpg"
+        ]
+        for file in files_to_clean:
             if os.path.exists(file):
                 try:
                     os.remove(file)
